@@ -92,7 +92,7 @@ UNSUPPORTED_EXTENSIONS = [
     # plumbing down to the native layer, we will get each message twice as we
     # use 2 loaders (win32+native), but we may get output from the driver.
     # In any case callback conversion is required.
-    "VK_EXT_debug_utils",
+    #"VK_EXT_debug_utils",
     "VK_EXT_validation_features",
     "VK_EXT_validation_flags",
     "VK_KHR_display", # Needs WSI work.
@@ -865,6 +865,8 @@ class VkFunctionPointer(object):
         text += ");\n"
         return text
 
+    def is_alias(self):
+        return False
 
 class VkHandle(object):
     def __init__(self, name, _type, parent, alias=None):
@@ -2403,6 +2405,9 @@ class VkGenerator(object):
         f.write("#ifndef WINE_VK_ALIGN\n")
         f.write("#define WINE_VK_ALIGN DECLSPEC_ALIGN\n")
         f.write("#endif\n\n")
+        
+        # forward declare because PFN_vkDebugUtilsMessengerCallbackEXT needs it
+        f.write("typedef struct VkDebugUtilsMessengerCallbackDataEXT VkDebugUtilsMessengerCallbackDataEXT;\n\n")
 
         # The overall strategy is to define independent constants and datatypes,
         # prior to complex structures and function calls to avoid forward declarations.
