@@ -4106,13 +4106,6 @@ static VkResult WINAPI wine_vkCreateDebugReportCallbackEXT(VkInstance instance, 
     return VK_SUCCESS;
 }
 
-static VkResult WINAPI wine_vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pMessenger)
-{
-    TRACE("%p, %p, %p, %p\n", instance, pCreateInfo, pAllocator, pMessenger);
-    //return instance->funcs.p_vkCreateDebugUtilsMessengerEXT(instance->instance, pCreateInfo, NULL, pMessenger);
-    return VK_SUCCESS;
-}
-
 VkResult WINAPI wine_vkCreateDescriptorPool(VkDevice device, const VkDescriptorPoolCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDescriptorPool *pDescriptorPool)
 {
     TRACE("%p, %p, %p, %p\n", device, pCreateInfo, pAllocator, pDescriptorPool);
@@ -4410,7 +4403,6 @@ static void WINAPI wine_vkDebugReportMessageEXT(VkInstance instance, VkDebugRepo
 {
     TRACE("%p, %#x, %#x, 0x%s, 0x%s, %d, %p, %p\n", instance, flags, objectType, wine_dbgstr_longlong(object), wine_dbgstr_longlong(location), messageCode, pLayerPrefix, pMessage);
     //instance->funcs.p_vkDebugReportMessageEXT(instance->instance, flags, objectType, object, location, messageCode, pLayerPrefix, pMessage);
-    return;
 }
 
 static void WINAPI wine_vkDestroyAccelerationStructureNV(VkDevice device, VkAccelerationStructureKHR accelerationStructure, const VkAllocationCallbacks *pAllocator)
@@ -4435,13 +4427,6 @@ static void WINAPI wine_vkDestroyDebugReportCallbackEXT(VkInstance instance, VkD
 {
     TRACE("%p, 0x%s, %p\n", instance, wine_dbgstr_longlong(callback), pAllocator);
     //instance->funcs.p_vkDestroyDebugReportCallbackEXT(instance->instance, callback, NULL);
-    return;
-}
-
-static void WINAPI wine_vkDestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT messenger, const VkAllocationCallbacks *pAllocator)
-{
-    TRACE("%p, 0x%s, %p\n", instance, wine_dbgstr_longlong(messenger), pAllocator);
-    //instance->funcs.p_vkDestroyDebugUtilsMessengerEXT(instance->instance, messenger, NULL);
 }
 
 void WINAPI wine_vkDestroyDescriptorPool(VkDevice device, VkDescriptorPool descriptorPool, const VkAllocationCallbacks *pAllocator)

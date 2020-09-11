@@ -225,6 +225,10 @@ FUNCTION_OVERRIDES = {
     # VK_EXT_calibrated_timestamps
     "vkGetPhysicalDeviceCalibrateableTimeDomainsEXT" : {"dispatch" : True, "driver" : False, "thunk" : False},
     "vkGetCalibratedTimestampsEXT" : {"dispatch" : True, "driver" : False, "thunk" : False},
+
+    # VK_EXT_debug_utils
+    "vkCreateDebugUtilsMessengerEXT" : {"dispatch": True, "driver" : False, "thunk" : False},
+    "vkDestroyDebugUtilsMessengerEXT" : {"dispatch": True, "driver" : False, "thunk" : False},
 }
 
 STRUCT_CHAIN_CONVERSIONS = [
@@ -934,6 +938,8 @@ class VkHandle(object):
 
         if self.name == "VkCommandPool":
             return "wine_cmd_pool_from_handle({0})->command_pool".format(name)
+        if self.name == "VkDebugUtilsMessengerEXT":
+            return "wine_debug_utils_messenger_from_handle({0})->debug_messenger".format(name)
 
         native_handle_name = None
 
@@ -947,6 +953,8 @@ class VkHandle(object):
             native_handle_name = "phys_dev"
         if self.name == "VkQueue":
             native_handle_name = "queue"
+        if self.name == "VkDebugUtilsMessengerEXT":
+            native_handle_name = "debug_messenger"
 
         if native_handle_name:
             return "{0}->{1}".format(name, native_handle_name)

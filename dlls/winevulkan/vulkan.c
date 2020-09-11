@@ -1616,6 +1616,67 @@ VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice
     return res;
 }
 
+static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT message_types, const VkDebugUtilsMessengerCallbackDataEXT *callback_data, void *user_data)
+{
+    struct wine_debug_utils_messenger *object;
+
+    object = user_data;
+
+    // TODO translate callback data
+    return object->user_callback(severity, message_types, callback_data, object->user_data);
+}
+
+VkResult WINAPI wine_vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *create_info,
+        const VkAllocationCallbacks *allocator, VkDebugUtilsMessengerEXT *messenger)
+{
+    VkDebugUtilsMessengerCreateInfoEXT wine_create_info;
+    struct wine_debug_utils_messenger *object;
+    VkResult res;
+
+    TRACE("%p, %p, %p, %p\n", instance, create_info, allocator, messenger);
+
+    if (allocator)
+        FIXME("Support for allocation callbacks not implemented yet\n");
+
+    if (!(object = heap_alloc(sizeof(*object))))
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    object->user_callback = create_info->pfnUserCallback;
+    object->user_data = create_info->pUserData;
+
+    wine_create_info = *create_info;
+
+    wine_create_info.pfnUserCallback = &debug_utils_callback_conversion;
+    wine_create_info.pUserData = object;
+
+    res = instance->funcs.p_vkCreateDebugUtilsMessengerEXT(instance->instance, &wine_create_info, NULL,  &object->debug_messenger);
+
+    if (res != VK_SUCCESS)
+    {
+        heap_free(object);
+        return res;
+    }
+
+    *messenger = wine_debug_utils_messenger_to_handle(object);
+
+    return VK_SUCCESS;
+}
+
+void WINAPI wine_vkDestroyDebugUtilsMessengerEXT(
+        VkInstance instance, VkDebugUtilsMessengerEXT messenger, const VkAllocationCallbacks *allocator)
+{
+    struct wine_debug_utils_messenger *object;
+
+    TRACE("%p, 0x%s, %p\n", instance, wine_dbgstr_longlong(messenger), allocator);
+
+    object = wine_debug_utils_messenger_from_handle(messenger);
+
+    instance->funcs.p_vkDestroyDebugUtilsMessengerEXT(instance->instance, object->debug_messenger, NULL);
+
+    heap_free(object);
+}
+
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
 {
     TRACE("%p, %u, %p\n", hinst, reason, reserved);
