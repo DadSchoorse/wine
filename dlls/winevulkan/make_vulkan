@@ -86,7 +86,7 @@ EXT_BLOCK_SIZE = 1000
 
 UNSUPPORTED_EXTENSIONS = [
     # Instance extensions
-    "VK_EXT_debug_report",
+    #"VK_EXT_debug_report",
     # Handling of VK_EXT_debug_report requires some consideration. The win32
     # loader already provides it for us and it is somewhat usable. If we add
     # plumbing down to the native layer, we will get each message twice as we
