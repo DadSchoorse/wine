@@ -57,6 +57,21 @@ static void *wine_vk_find_struct_(void *s, VkStructureType t)
     return NULL;
 }
 
+#define wine_vk_count_struct(s, t) wine_vk_count_struct_((void *)s, VK_STRUCTURE_TYPE_##t)
+static uint32_t wine_vk_count_struct_(void *s, VkStructureType t)
+{
+    const VkBaseInStructure *header;
+    uint32_t result = 0;
+
+    for (header = s; header; header = header->pNext)
+    {
+        if (header->sType == t)
+            result++;
+    }
+
+    return result;
+}
+
 static void *wine_vk_get_global_proc_addr(const char *name);
 
 static HINSTANCE hinstance;
@@ -108,6 +123,79 @@ static uint64_t wine_vk_get_wrapper(struct VkInstance_T *instance, uint64_t nati
         }
     }
     ReleaseSRWLockShared(&instance->wrapper_lock);
+    return result;
+}
+
+static VkBool32 is_wrapped(VkObjectType type)
+{
+    return type == VK_OBJECT_TYPE_INSTANCE ||
+           type == VK_OBJECT_TYPE_PHYSICAL_DEVICE ||
+           type == VK_OBJECT_TYPE_DEVICE ||
+           type == VK_OBJECT_TYPE_QUEUE ||
+           type == VK_OBJECT_TYPE_COMMAND_BUFFER ||
+           type == VK_OBJECT_TYPE_COMMAND_POOL ||
+           type == VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT;
+}
+
+static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT message_types,
+#if defined(USE_STRUCT_CONVERSION)
+    const VkDebugUtilsMessengerCallbackDataEXT_host *callback_data,
+#else
+    const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
+#endif
+    void *user_data)
+{
+    struct VkDebugUtilsMessengerCallbackDataEXT wine_callback_data;
+    VkDebugUtilsObjectNameInfoEXT *object_name_infos;
+    struct wine_debug_utils_messenger *object;
+    VkBool32 result;
+    int i;
+
+    TRACE("%i, %u, %p, %p\n", severity, message_types, callback_data, user_data);
+
+    object = user_data;
+
+    if (!object->instance->instance)
+    {
+        /* instance wasn't yet created, this is a message from the native loader */
+        return VK_FALSE;
+    }
+
+    wine_callback_data = *((VkDebugUtilsMessengerCallbackDataEXT *) callback_data);
+
+    object_name_infos = heap_calloc(wine_callback_data.objectCount, sizeof(*object_name_infos));
+
+    for (i = 0; i < wine_callback_data.objectCount; i++)
+    {
+        object_name_infos[i].sType = callback_data->pObjects[i].sType;
+        object_name_infos[i].pNext = callback_data->pObjects[i].pNext;
+        object_name_infos[i].objectType = callback_data->pObjects[i].objectType;
+        object_name_infos[i].pObjectName = callback_data->pObjects[i].pObjectName;
+
+        if (is_wrapped(callback_data->pObjects[i].objectType))
+        {
+            object_name_infos[i].objectHandle = wine_vk_get_wrapper(object->instance, callback_data->pObjects[i].objectHandle);
+            if (!object_name_infos[i].objectHandle)
+            {
+                WARN("handle conversion failed 0x%s\n", wine_dbgstr_longlong(callback_data->pObjects[i].objectHandle));
+                heap_free(object_name_infos);
+                return VK_FALSE;
+            }
+        }
+        else
+        {
+            object_name_infos[i].objectHandle = callback_data->pObjects[i].objectHandle;
+        }
+    }
+
+    wine_callback_data.pObjects = object_name_infos;
+
+    /* applications should always return VK_FALSE */
+    result = object->user_callback(severity, message_types, &wine_callback_data, object->user_data);
+
+    heap_free(object_name_infos);
+
     return result;
 }
 
@@ -391,6 +479,8 @@ static void wine_vk_init_once(void)
 static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo *src,
         VkInstanceCreateInfo *dst, struct VkInstance_T *object)
 {
+    VkDebugUtilsMessengerCreateInfoEXT *debug_utils_messenger;
+    VkBaseOutStructure *header;
     unsigned int i;
     VkResult res;
 
@@ -400,6 +490,22 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
     {
         WARN("Failed to convert VkInstanceCreateInfo pNext chain, res=%d.\n", res);
         return res;
+    }
+
+    object->utils_messenger_count = wine_vk_count_struct(dst, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+    object->utils_messengers =  heap_calloc(object->utils_messenger_count, sizeof(*object->utils_messengers));
+    header = (VkBaseOutStructure *) dst;
+    for (i = 0; i < object->utils_messenger_count; i++)
+    {
+        header = wine_vk_find_struct(header->pNext, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+        debug_utils_messenger = (VkDebugUtilsMessengerCreateInfoEXT *) header;
+        object->utils_messengers[i].instance = object;
+        object->utils_messengers[i].debug_messenger = VK_NULL_HANDLE;
+        object->utils_messengers[i].user_callback = debug_utils_messenger->pfnUserCallback;
+        object->utils_messengers[i].user_data = debug_utils_messenger->pUserData;
+
+        debug_utils_messenger->pfnUserCallback = (void *) &debug_utils_callback_conversion;
+        debug_utils_messenger->pUserData = &object->utils_messengers[i];
     }
 
     /* ICDs don't support any layers, so nothing to copy. Modern versions of the loader
@@ -424,6 +530,10 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
             WARN("Extension %s is not supported.\n", debugstr_a(extension_name));
             free_VkInstanceCreateInfo_struct_chain(dst);
             return VK_ERROR_EXTENSION_NOT_PRESENT;
+        }
+        if (!strcmp(extension_name, "VK_EXT_debug_utils"))
+        {
+            object->enable_wrapper_list = VK_TRUE;
         }
     }
 
@@ -521,6 +631,8 @@ static void wine_vk_instance_free(struct VkInstance_T *instance)
 
     if (instance->instance)
         vk_funcs->p_vkDestroyInstance(instance->instance, NULL /* allocator */);
+
+    heap_free(instance->utils_messengers);
 
     heap_free(instance);
 }
@@ -1607,6 +1719,10 @@ static uint64_t unwrap_object_handle(VkObjectType type, uint64_t handle)
 {
     switch (type)
     {
+        case VK_OBJECT_TYPE_INSTANCE:
+            return (uint64_t) (uintptr_t) ((VkInstance) (uintptr_t) handle)->instance;
+        case VK_OBJECT_TYPE_PHYSICAL_DEVICE:
+            return (uint64_t) (uintptr_t) ((VkPhysicalDevice) (uintptr_t) handle)->phys_dev;
         case VK_OBJECT_TYPE_DEVICE:
             return (uint64_t) (uintptr_t) ((VkDevice) (uintptr_t) handle)->device;
         case VK_OBJECT_TYPE_QUEUE:
@@ -1615,6 +1731,8 @@ static uint64_t unwrap_object_handle(VkObjectType type, uint64_t handle)
             return (uint64_t) (uintptr_t) ((VkCommandBuffer) (uintptr_t) handle)->command_buffer;
         case VK_OBJECT_TYPE_COMMAND_POOL:
             return (uint64_t) wine_cmd_pool_from_handle(handle)->command_pool;
+        case VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT:
+            return (uint64_t) wine_debug_utils_messenger_from_handle(handle)->debug_messenger;
         default:
             return handle;
     }
@@ -1683,6 +1801,84 @@ VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice
         adjust_max_image_count(phys_dev, &capabilities->surfaceCapabilities);
 
     return res;
+}
+
+VkResult WINAPI wine_vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *create_info,
+        const VkAllocationCallbacks *allocator, VkDebugUtilsMessengerEXT *messenger)
+{
+    VkDebugUtilsMessengerCreateInfoEXT wine_create_info;
+    struct wine_debug_utils_messenger *object;
+    VkResult res;
+
+    TRACE("%p, %p, %p, %p\n", instance, create_info, allocator, messenger);
+
+    if (allocator)
+        FIXME("Support for allocation callbacks not implemented yet\n");
+
+    if (!(object = heap_alloc_zero(sizeof(*object))))
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    object->instance = instance;
+    object->user_callback = create_info->pfnUserCallback;
+    object->user_data = create_info->pUserData;
+
+    wine_create_info = *create_info;
+
+    wine_create_info.pfnUserCallback = (void *) &debug_utils_callback_conversion;
+    wine_create_info.pUserData = object;
+
+    res = instance->funcs.p_vkCreateDebugUtilsMessengerEXT(instance->instance, &wine_create_info, NULL,  &object->debug_messenger);
+
+    if (res != VK_SUCCESS)
+    {
+        heap_free(object);
+        return res;
+    }
+
+    WINE_VK_ADD_HANDLE_MAPPING(instance, object, object->debug_messenger);
+    *messenger = wine_debug_utils_messenger_to_handle(object);
+
+    return VK_SUCCESS;
+}
+
+void WINAPI wine_vkDestroyDebugUtilsMessengerEXT(
+        VkInstance instance, VkDebugUtilsMessengerEXT messenger, const VkAllocationCallbacks *allocator)
+{
+    struct wine_debug_utils_messenger *object;
+
+    TRACE("%p, 0x%s, %p\n", instance, wine_dbgstr_longlong(messenger), allocator);
+
+    object = wine_debug_utils_messenger_from_handle(messenger);
+
+    instance->funcs.p_vkDestroyDebugUtilsMessengerEXT(instance->instance, object->debug_messenger, NULL);
+    WINE_VK_REMOVE_HANDLE_MAPPING(instance, object);
+
+    heap_free(object);
+}
+
+void WINAPI wine_vkSubmitDebugUtilsMessageEXT(VkInstance instance, VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+        VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT *callback_data)
+{
+    VkDebugUtilsMessengerCallbackDataEXT native_callback_data;
+    VkDebugUtilsObjectNameInfoEXT *object_names;
+    int i;
+
+    TRACE("%p, %#x, %#x, %p\n", instance, severity, types, callback_data);
+
+    native_callback_data = *callback_data;
+    object_names = heap_calloc(callback_data->objectCount, sizeof(*object_names));
+    memcpy(object_names, callback_data->pObjects, callback_data->objectCount * sizeof(*object_names));
+    native_callback_data.pObjects = object_names;
+
+    for (i = 0; i < callback_data->objectCount; i++)
+    {
+        object_names[i].objectHandle =
+                unwrap_object_handle(callback_data->pObjects[i].objectType, callback_data->pObjects[i].objectHandle);
+    }
+
+    thunk_vkSubmitDebugUtilsMessageEXT(instance->instance, severity, types, &native_callback_data);
+
+    heap_free(object_names);
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
