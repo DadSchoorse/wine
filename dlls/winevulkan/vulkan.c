@@ -96,17 +96,19 @@ static void wine_vk_remove_handle_mapping(struct VkInstance_T *instance, struct 
 static uint64_t wine_vk_get_wrapper(struct VkInstance_T *instance, uint64_t native_handle)
 {
     struct wine_vk_mapping *mapping;
+    uint64_t result = 0;
 
     AcquireSRWLockShared(&instance->wrapper_lock);
     LIST_FOR_EACH_ENTRY(mapping, &instance->wrappers, struct wine_vk_mapping, link)
     {
         if (mapping->native_handle == native_handle)
         {
-            return mapping->wine_wrapper;
+            result = mapping->wine_wrapper;
+            break;
         }
     }
     ReleaseSRWLockShared(&instance->wrapper_lock);
-    return VK_NULL_HANDLE;
+    return result;
 }
 
 static VkBool32 is_wrapped(VkObjectType type)
@@ -136,12 +138,18 @@ static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagB
 
     object = user_data;
 
+    if (!object->instance->instance)
+    {
+        /* instance wasn't yet created, this is a message from the native loader*/
+        return VK_FALSE;
+    }
+
     wine_callback_data = *callback_data;
 
     if (!(object_name_infos = heap_calloc(wine_callback_data.objectCount, sizeof(*object_name_infos))))
     {
         /* We can't really indicate an error to the application here */
-        WARN("failed to allocate memory for conversion");
+        WARN("failed to allocate memory for conversion\n");
         return VK_FALSE;
     }
 
@@ -157,7 +165,9 @@ static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagB
             object_name_infos[i].objectHandle = wine_vk_get_wrapper(object->instance, callback_data->pObjects[i].objectHandle);
             if (!object_name_infos[i].objectHandle)
             {
-                WARN("handle conversion failed");
+                WARN("handle conversion failed 0x%s\n", wine_dbgstr_longlong(callback_data->pObjects[i].objectHandle));
+                heap_free(object_name_infos);
+                return VK_FALSE;
             }
         }
         else
@@ -502,7 +512,7 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
             free_VkInstanceCreateInfo_struct_chain(dst);
             return VK_ERROR_EXTENSION_NOT_PRESENT;
         }
-        if (!strcmp(extension_name, "VK_EXT_debug_report"))
+        if (!strcmp(extension_name, "VK_EXT_debug_utils"))
         {
             object->enable_wrapper_list = VK_TRUE;
         }
@@ -816,6 +826,8 @@ VkResult WINAPI wine_vkCreateInstance(const VkInstanceCreateInfo *create_info,
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     object->base.loader_magic = VULKAN_ICD_MAGIC_VALUE;
+    list_init(&object->wrappers);
+    InitializeSRWLock(&object->wrapper_lock);
 
     res = wine_vk_instance_convert_create_info(create_info, &create_info_host, object);
     if (res != VK_SUCCESS)
@@ -833,8 +845,6 @@ VkResult WINAPI wine_vkCreateInstance(const VkInstanceCreateInfo *create_info,
         return res;
     }
 
-    list_init(&object->wrappers);
-    InitializeSRWLock(&object->wrapper_lock);
     WINE_VK_ADD_HANDLE_MAPPING(object, object, object->instance);
 
     /* Load all instance functions we are aware of. Note the loader takes care
