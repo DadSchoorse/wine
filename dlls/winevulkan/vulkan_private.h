@@ -122,7 +122,8 @@ struct VkInstance_T
     VkBool32 enable_wrapper_list;
     struct list wrappers;
     SRWLOCK wrapper_lock;
-    struct wine_debug_utils_messenger utils_messenger;
+    struct wine_debug_utils_messenger *utils_messengers;
+    uint32_t utils_messenger_count;
 
     unsigned int quirks;
     

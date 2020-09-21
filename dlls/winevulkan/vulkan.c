@@ -57,6 +57,21 @@ static void *wine_vk_find_struct_(void *s, VkStructureType t)
     return NULL;
 }
 
+#define wine_vk_count_struct(s, t) wine_vk_count_struct_((void *)s, VK_STRUCTURE_TYPE_##t)
+static uint32_t wine_vk_count_struct_(void *s, VkStructureType t)
+{
+    VkBaseOutStructure *header;
+    uint32_t result = 0;
+
+    for (header = s; header; header = header->pNext)
+    {
+        if (header->sType == t)
+            result++;
+    }
+
+    return result;
+}
+
 static void *wine_vk_get_global_proc_addr(const char *name);
 
 static HINSTANCE hinstance;
@@ -477,16 +492,19 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
         return res;
     }
 
-    debug_utils_messenger = wine_vk_find_struct(dst, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
-    if (debug_utils_messenger)
+    object->utils_messenger_count = wine_vk_count_struct(dst, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+    debug_utils_messenger = (VkDebugUtilsMessengerCreateInfoEXT *) dst;
+    object->utils_messengers =  heap_calloc(object->utils_messenger_count, sizeof(*object->utils_messengers));
+    for (i = 0; i < object->utils_messenger_count; i++)
     {
-        object->utils_messenger.instance = object;
-        object->utils_messenger.debug_messenger = VK_NULL_HANDLE;
-        object->utils_messenger.user_callback = debug_utils_messenger->pfnUserCallback;
-        object->utils_messenger.user_data = debug_utils_messenger->pUserData;
+        debug_utils_messenger = wine_vk_find_struct(debug_utils_messenger->pNext, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+        object->utils_messengers[i].instance = object;
+        object->utils_messengers[i].debug_messenger = VK_NULL_HANDLE;
+        object->utils_messengers[i].user_callback = debug_utils_messenger->pfnUserCallback;
+        object->utils_messengers[i].user_data = debug_utils_messenger->pUserData;
 
         debug_utils_messenger->pfnUserCallback = (void *) &debug_utils_callback_conversion;
-        debug_utils_messenger->pUserData = &object->utils_messenger;
+        debug_utils_messenger->pUserData = &object->utils_messengers[i];
     }
 
     /* ICDs don't support any layers, so nothing to copy. Modern versions of the loader
@@ -612,6 +630,9 @@ static void wine_vk_instance_free(struct VkInstance_T *instance)
 
     if (instance->instance)
         vk_funcs->p_vkDestroyInstance(instance->instance, NULL /* allocator */);
+
+    if (instance->utils_messengers)
+        heap_free(instance->utils_messengers);
 
     heap_free(instance);
 }
