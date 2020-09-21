@@ -109,6 +109,73 @@ static uint64_t wine_vk_get_wrapper(struct VkInstance_T *instance, uint64_t nati
     return VK_NULL_HANDLE;
 }
 
+static VkBool32 is_wrapped(VkObjectType type)
+{
+    return type == VK_OBJECT_TYPE_INSTANCE ||
+           type == VK_OBJECT_TYPE_PHYSICAL_DEVICE ||
+           type == VK_OBJECT_TYPE_DEVICE ||
+           type == VK_OBJECT_TYPE_QUEUE ||
+           type == VK_OBJECT_TYPE_COMMAND_BUFFER ||
+           type == VK_OBJECT_TYPE_COMMAND_POOL ||
+           type == VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT;
+}
+
+static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT message_types,
+#if defined(USE_STRUCT_CONVERSION)
+    const VkDebugUtilsMessengerCallbackDataEXT_host *callback_data,
+#else
+    const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
+#endif
+    void *user_data)
+{
+    struct VkDebugUtilsMessengerCallbackDataEXT wine_callback_data;
+    VkDebugUtilsObjectNameInfoEXT *object_name_infos;
+    struct wine_debug_utils_messenger *object;
+    int i;
+
+    object = user_data;
+
+    wine_callback_data = *callback_data;
+
+    if (!(object_name_infos = heap_calloc(wine_callback_data.objectCount, sizeof(*object_name_infos))))
+    {
+        /* We can't really indicate an error to the application here */
+        WARN("failed to allocate memory for conversion");
+        return VK_FALSE;
+    }
+
+    for (i = 0; i < wine_callback_data.objectCount; i++)
+    {
+        object_name_infos[i].sType = callback_data->pObjects[i].sType;
+        object_name_infos[i].pNext = callback_data->pObjects[i].pNext;
+        object_name_infos[i].objectType = callback_data->pObjects[i].objectType;
+        object_name_infos[i].pObjectName = callback_data->pObjects[i].pObjectName;
+
+        if (is_wrapped(callback_data->pObjects[i].objectType))
+        {
+            object_name_infos[i].objectHandle = wine_vk_get_wrapper(object->instance, callback_data->pObjects[i].objectHandle);
+            if (!object_name_infos[i].objectHandle)
+            {
+                WARN("handle conversion failed");
+            }
+        }
+        else
+        {
+            object_name_infos[i].objectHandle = callback_data->pObjects[i].objectHandle;
+        }
+    }
+
+    wine_callback_data.pObjects = object_name_infos;
+
+    /* applications should always return VK_FALSE */
+    object->user_callback(severity, message_types, &wine_callback_data, object->user_data);
+
+    heap_free(object_name_infos);
+
+    return VK_FALSE;
+}
+
 static void wine_vk_physical_device_free(struct VkPhysicalDevice_T *phys_dev)
 {
     if (!phys_dev)
@@ -388,6 +455,7 @@ static void wine_vk_init_once(void)
 static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo *src,
         VkInstanceCreateInfo *dst, struct VkInstance_T *object)
 {
+    VkDebugUtilsMessengerCreateInfoEXT *debug_utils_messenger;
     unsigned int i;
     VkResult res;
 
@@ -397,6 +465,18 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
     {
         WARN("Failed to convert VkInstanceCreateInfo pNext chain, res=%d.\n", res);
         return res;
+    }
+
+    debug_utils_messenger = wine_vk_find_struct(dst, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+    if (debug_utils_messenger)
+    {
+        object->utils_messenger.instance = object;
+        object->utils_messenger.debug_messenger = VK_NULL_HANDLE;
+        object->utils_messenger.user_callback = debug_utils_messenger->pfnUserCallback;
+        object->utils_messenger.user_data = debug_utils_messenger->pUserData;
+
+        debug_utils_messenger->pfnUserCallback = (void *) &debug_utils_callback_conversion;
+        debug_utils_messenger->pUserData = &object->utils_messenger;
     }
 
     /* ICDs don't support any layers, so nothing to copy. Modern versions of the loader
@@ -421,6 +501,10 @@ static VkResult wine_vk_instance_convert_create_info(const VkInstanceCreateInfo 
             WARN("Extension %s is not supported.\n", debugstr_a(extension_name));
             free_VkInstanceCreateInfo_struct_chain(dst);
             return VK_ERROR_EXTENSION_NOT_PRESENT;
+        }
+        if (!strcmp(extension_name, "VK_EXT_debug_report"))
+        {
+            object->enable_wrapper_list = VK_TRUE;
         }
     }
 
@@ -1686,74 +1770,6 @@ VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice
         adjust_max_image_count(phys_dev, &capabilities->surfaceCapabilities);
 
     return res;
-}
-
-static VkBool32 is_wrapped(VkObjectType type)
-{
-    return type == VK_OBJECT_TYPE_INSTANCE ||
-           type == VK_OBJECT_TYPE_PHYSICAL_DEVICE ||
-           type == VK_OBJECT_TYPE_DEVICE ||
-           type == VK_OBJECT_TYPE_QUEUE ||
-           type == VK_OBJECT_TYPE_COMMAND_BUFFER ||
-           type == VK_OBJECT_TYPE_COMMAND_POOL ||
-           type == VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT;
-}
-
-
-static VkBool32 debug_utils_callback_conversion(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT message_types,
-#if defined(USE_STRUCT_CONVERSION)
-    const VkDebugUtilsMessengerCallbackDataEXT_host *callback_data,
-#else
-    const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
-#endif
-    void *user_data)
-{
-    struct VkDebugUtilsMessengerCallbackDataEXT wine_callback_data;
-    VkDebugUtilsObjectNameInfoEXT *object_name_infos;
-    struct wine_debug_utils_messenger *object;
-    int i;
-
-    object = user_data;
-
-    wine_callback_data = *callback_data;
-
-    if (!(object_name_infos = heap_calloc(wine_callback_data.objectCount, sizeof(*object_name_infos))))
-    {
-        /* We can't really indicate an error to the application here */
-        WARN("failed to allocate memory for conversion");
-        return VK_FALSE;
-    }
-
-    for (i = 0; i < wine_callback_data.objectCount; i++)
-    {
-        object_name_infos[i].sType = callback_data->pObjects[i].sType;
-        object_name_infos[i].pNext = callback_data->pObjects[i].pNext;
-        object_name_infos[i].objectType = callback_data->pObjects[i].objectType;
-        object_name_infos[i].pObjectName = callback_data->pObjects[i].pObjectName;
-
-        if (is_wrapped(callback_data->pObjects[i].objectType))
-        {
-            object_name_infos[i].objectHandle = wine_vk_get_wrapper(object->instance, callback_data->pObjects[i].objectHandle);
-            if (!object_name_infos[i].objectHandle)
-            {
-                WARN("handle conversion failed");
-            }
-        }
-        else
-        {
-            object_name_infos[i].objectHandle = callback_data->pObjects[i].objectHandle;
-        }
-    }
-
-    wine_callback_data.pObjects = object_name_infos;
-
-    /* applications should always return VK_FALSE */
-    object->user_callback(severity, message_types, &wine_callback_data, object->user_data);
-
-    heap_free(object_name_infos);
-
-    return VK_FALSE;
 }
 
 VkResult WINAPI wine_vkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *create_info,
