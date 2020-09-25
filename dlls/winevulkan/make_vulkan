@@ -939,9 +939,6 @@ class VkHandle(object):
     def native_handle(self, name):
         """ Provide access to the native handle of a wrapped object. """
 
-        # Remember to add any new native handle whose parent is VkDevice
-        # to unwrap_object_handle() in vulkan.c
-
         if self.name == "VkCommandPool":
             return "wine_cmd_pool_from_handle({0})->command_pool".format(name)
 
@@ -965,6 +962,24 @@ class VkHandle(object):
             LOGGER.error("Unhandled native handle for: {0}".format(self.name))
         return None
 
+    def is_wrapped(self):
+        return self.native_handle("test") is not None
+
+    def object_type(self):
+        """ Generates the matching VkObjectType """
+
+        # FIXME: use the xml comments for VkObjectType instead
+        if not self.name.startswith("Vk") or any(c.isdigit() for c in self.name):
+            LOGGER.warn("object type generation might fail for: {0}".format(self.name))
+
+        type_ = "VK_OBJECT_TYPE"
+        previous = "f"
+        for char in self.name[2:]:
+            if char.isupper() and previous.islower():
+                type_ += "_"
+            type_ += char.upper()
+            previous = char
+        return type_
 
 class VkMember(object):
     def __init__(self, const=False, struct_fwd_decl=False,_type=None, pointer=None, name=None, array_len=None,
@@ -2276,6 +2291,36 @@ class VkGenerator(object):
         f.write("            return TRUE;\n")
         f.write("    }\n")
         f.write("    return FALSE;\n")
+        f.write("}\n\n")
+
+        f.write("BOOL wine_vk_is_type_wrapped(VkObjectType type)\n")
+        f.write("{\n")
+        f.write("    return FALSE")
+        for handle in self.registry.handles:
+            if not handle.is_required() or not handle.is_wrapped():
+                continue
+            f.write(" ||\n        type == {}".format(handle.object_type()))
+        f.write(";\n")
+        f.write("}\n\n")
+
+        f.write("uint64_t wine_vk_unwrap_handle(VkObjectType type, uint64_t handle)\n")
+        f.write("{\n")
+        f.write("    switch(type)\n")
+        f.write("    {\n")
+        for handle in self.registry.handles:
+            if not handle.is_required() or not handle.is_wrapped():
+                continue
+            f.write("    case {}:\n".format(handle.object_type()))
+            if handle.is_dispatchable():
+                f.write("        return (uint64_t) (uintptr_t) ")
+                f.write(handle.native_handle("(({}) (uintptr_t) handle)".format(handle.name)))
+            else:
+                f.write("        return (uint64_t) ")
+                f.write(handle.native_handle("handle"))
+            f.write(";\n");
+        f.write("    default:\n")
+        f.write("       return handle;\n")
+        f.write("    }\n")
         f.write("}\n")
 
     def generate_thunks_h(self, f, prefix):
