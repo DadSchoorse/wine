@@ -371,20 +371,21 @@ class VkEnum(object):
             # Value is either a value or a bitpos, only one can exist.
             value = v.attrib.get("value")
             alias_name = v.attrib.get("alias")
+            comment = v.attrib.get("comment")
             if alias_name:
                 alias = next(x for x in values if x.name == alias_name)
-                values.append(VkEnumValue(v.attrib.get("name"), value=alias.value, hex=alias.hex))
+                values.append(VkEnumValue(v.attrib.get("name"), value=alias.value, hex=alias.hex, comment=comment))
             elif value:
                 # Some values are in hex form. We want to preserve the hex representation
                 # at least when we convert back to a string. Internally we want to use int.
                 if "0x" in value:
-                    values.append(VkEnumValue(v.attrib.get("name"), value=int(value, 0), hex=True))
+                    values.append(VkEnumValue(v.attrib.get("name"), value=int(value, 0), hex=True, comment=comment))
                 else:
-                    values.append(VkEnumValue(v.attrib.get("name"), value=int(value, 0)))
+                    values.append(VkEnumValue(v.attrib.get("name"), value=int(value, 0), comment=comment))
             else:
                 # bitmask
                 value = 1 << int(v.attrib.get("bitpos"))
-                values.append(VkEnumValue(v.attrib.get("name"), value=value, hex=True))
+                values.append(VkEnumValue(v.attrib.get("name"), value=value, hex=True, comment=comment))
 
         # vulkan.h contains a *_MAX_ENUM value set to 32-bit at the time of writing,
         # which is to prepare for extensions as they can add values and hence affect
@@ -435,11 +436,12 @@ class VkEnum(object):
 
 
 class VkEnumValue(object):
-    def __init__(self, name, value=None, hex=False, alias=None):
+    def __init__(self, name, value=None, hex=False, alias=None, comment=None):
         self.name = name
         self.value = value
         self.hex = hex
         self.alias = alias
+        self.comment = comment
 
     def __repr__(self):
         if self.is_alias():
@@ -885,6 +887,7 @@ class VkHandle(object):
         self.parent = parent
         self.alias = alias
         self.required = False
+        self.object_type = None
 
     @staticmethod
     def from_alias(handle, alias):
@@ -965,21 +968,6 @@ class VkHandle(object):
     def is_wrapped(self):
         return self.native_handle("test") is not None
 
-    def object_type(self):
-        """ Generates the matching VkObjectType """
-
-        # FIXME: use the xml comments for VkObjectType instead
-        if not self.name.startswith("Vk") or any(c.isdigit() for c in self.name):
-            LOGGER.warn("object type generation might fail for: {0}".format(self.name))
-
-        type_ = "VK_OBJECT_TYPE"
-        previous = "f"
-        for char in self.name[2:]:
-            if char.isupper() and previous.islower():
-                type_ += "_"
-            type_ += char.upper()
-            previous = char
-        return type_
 
 class VkMember(object):
     def __init__(self, const=False, struct_fwd_decl=False,_type=None, pointer=None, name=None, array_len=None,
@@ -2299,7 +2287,7 @@ class VkGenerator(object):
         for handle in self.registry.handles:
             if not handle.is_required() or not handle.is_wrapped():
                 continue
-            f.write(" ||\n        type == {}".format(handle.object_type()))
+            f.write(" ||\n        type == {}".format(handle.object_type))
         f.write(";\n")
         f.write("}\n\n")
 
@@ -2310,7 +2298,7 @@ class VkGenerator(object):
         for handle in self.registry.handles:
             if not handle.is_required() or not handle.is_wrapped():
                 continue
-            f.write("    case {}:\n".format(handle.object_type()))
+            f.write("    case {}:\n".format(handle.object_type))
             if handle.is_dispatchable():
                 f.write("        return (uint64_t) (uintptr_t) ")
                 f.write(handle.native_handle("(({}) (uintptr_t) handle)".format(handle.name)))
@@ -2664,6 +2652,12 @@ class VkRegistry(object):
         self._parse_features(root)
         self._parse_extensions(root)
 
+        for handle in self.handles:
+            for value in self.enums["VkObjectType"].values:
+                if value.comment == handle.name:
+                    handle.object_type = value.name
+                    print(value.name)
+
         self.copyright = root.find('./comment').text
 
     def _is_feature_supported(self, feature):
@@ -2827,10 +2821,12 @@ class VkRegistry(object):
             if only_aliased and not aliased:
                 return
 
+            comment = enum_elem.attrib.get("comment")
+
             if "bitpos" in enum_elem.keys():
                 # We need to add an extra value to an existing enum type.
                 # E.g. VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG to VkFormatFeatureFlagBits.
-                enum.add(VkEnumValue(enum_elem.attrib["name"], value=(1 << int(enum_elem.attrib["bitpos"])), hex=True))
+                enum.add(VkEnumValue(enum_elem.attrib["name"], value=(1 << int(enum_elem.attrib["bitpos"])), hex=True, comment=comment))
 
             elif "offset" in enum_elem.keys():
                 # Extensions promoted to Core, have the extension number as part
@@ -2847,12 +2843,12 @@ class VkRegistry(object):
                 if direction is not None:
                     value = -value
 
-                enum.add(VkEnumValue(enum_elem.attrib["name"], value=value))
+                enum.add(VkEnumValue(enum_elem.attrib["name"], value=value, comment=comment))
 
             elif "value" in enum_elem.keys():
-                enum.add(VkEnumValue(enum_elem.attrib["name"], value=int(enum_elem.attrib["value"])))
+                enum.add(VkEnumValue(enum_elem.attrib["name"], value=int(enum_elem.attrib["value"]), comment=comment))
             elif "alias" in enum_elem.keys():
-                enum.add(VkEnumValue(enum_elem.attrib["name"], alias=enum_elem.attrib["alias"]))
+                enum.add(VkEnumValue(enum_elem.attrib["name"], alias=enum_elem.attrib["alias"], comment=comment))
 
         elif "value" in enum_elem.keys():
             # Constants are not aliased, no need to add them here, they'll get added later on.
