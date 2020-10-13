@@ -2285,7 +2285,7 @@ class VkGenerator(object):
         f.write("{\n")
         f.write("    return FALSE")
         for handle in self.registry.handles:
-            if not handle.is_required() or not handle.is_wrapped():
+            if not handle.is_required() or not handle.is_wrapped() or handle.is_alias():
                 continue
             f.write(" ||\n        type == {}".format(handle.object_type))
         f.write(";\n")
@@ -2296,7 +2296,7 @@ class VkGenerator(object):
         f.write("    switch(type)\n")
         f.write("    {\n")
         for handle in self.registry.handles:
-            if not handle.is_required() or not handle.is_wrapped():
+            if not handle.is_required() or not handle.is_wrapped() or handle.is_alias():
                 continue
             f.write("    case {}:\n".format(handle.object_type))
             if handle.is_dispatchable():
