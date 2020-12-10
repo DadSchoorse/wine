@@ -82,11 +82,7 @@ struct VkDevice_T
 
     unsigned int quirks;
 
-    uint32_t num_swapchains;
-    struct VkSwapchainKHR_T **swapchains;
     VkQueueFamilyProperties *queue_props;
-
-    CRITICAL_SECTION swapchain_lock;
 
     struct wine_vk_mapping mapping;
 };
@@ -206,6 +202,8 @@ struct VkSwapchainKHR_T
     VkDescriptorSetLayout descriptor_set_layout;
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
+
+    struct wine_vk_mapping mapping;
 };
 
 struct wine_debug_utils_messenger

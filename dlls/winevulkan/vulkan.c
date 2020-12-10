@@ -458,8 +458,6 @@ static void wine_vk_device_free(struct VkDevice_T *device)
     }
 
     heap_free(device->queue_props);
-    heap_free(device->swapchains);
-    DeleteCriticalSection(&device->swapchain_lock);
 
     heap_free(device);
 }
@@ -842,8 +840,6 @@ VkResult WINAPI wine_vkCreateDevice(VkPhysicalDevice phys_dev,
     }
 
     object->quirks = phys_dev->instance->quirks;
-
-    InitializeCriticalSection(&object->swapchain_lock);
 
     *device = object;
     TRACE("Created device %p (native device %p).\n", object, object->device);
@@ -2220,13 +2216,6 @@ HRESULT WINAPI DllUnregisterServer(void)
     return S_OK;
 }
 
-VkResult WINAPI wine_vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex)
-{
-    struct VkSwapchainKHR_T *object = (struct VkSwapchainKHR_T *)(UINT_PTR)swapchain;
-    TRACE("%p, 0x%s, 0x%s, 0x%s, 0x%s, %p\n", device, wine_dbgstr_longlong(swapchain), wine_dbgstr_longlong(timeout), wine_dbgstr_longlong(semaphore), wine_dbgstr_longlong(fence), pImageIndex);
-    return device->funcs.p_vkAcquireNextImageKHR(device->device, object->swapchain, timeout, semaphore, fence, pImageIndex);
-}
-
 VkResult WINAPI wine_vkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR *pAcquireInfo, uint32_t *pImageIndex)
 {
 #if defined(USE_STRUCT_CONVERSION)
@@ -2614,7 +2603,6 @@ VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCrea
 #endif
     VkExtent2D user_sz;
     struct VkSwapchainKHR_T *object;
-    uint32_t i;
 
     TRACE("%p, %p, %p, %p\n", device, pCreateInfo, pAllocator, pSwapchain);
 
@@ -2673,6 +2661,7 @@ VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCrea
         heap_free(object);
         return result;
     }
+    WINE_VK_ADD_NON_DISPATCHABLE_MAPPING(device->phys_dev->instance, object, object->swapchain);
 
     if(object->fs_hack_enabled){
         object->user_extent = pCreateInfo->imageExtent;
@@ -2680,9 +2669,7 @@ VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCrea
         result = init_fs_hack_images(device, object, &our_createinfo);
         if(result != VK_SUCCESS){
             ERR("creating fs hack images failed: %d\n", result);
-            device->funcs.p_vkDestroySwapchainKHR(device->device, object->swapchain, NULL);
-            heap_free(object);
-            return result;
+            goto fail;
         }
 
         /* FIXME: would be nice to do this on-demand, but games can use up all
@@ -2690,39 +2677,18 @@ VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCrea
         result = init_blit_images(device, object);
         if(result != VK_SUCCESS){
             ERR("creating blit images failed: %d\n", result);
-            wine_vkDestroySwapchainKHR(device, (VkSwapchainKHR)(UINT_PTR)object, NULL);
-            return result;
+            goto fail;
         }
     }
-
-    if(result != VK_SUCCESS){
-        heap_free(object);
-        return result;
-    }
-
-    EnterCriticalSection(&device->swapchain_lock);
-    for(i = 0; i < device->num_swapchains; ++i){
-        if(!device->swapchains[i]){
-            device->swapchains[i] = object;
-            break;
-        }
-    }
-    if(i == device->num_swapchains){
-        struct VkSwapchainKHR_T **swapchains;
-        swapchains = heap_realloc(device->swapchains, sizeof(struct VkSwapchainKHR_T *) * (device->num_swapchains + 1));
-        if(!swapchains){
-            device->funcs.p_vkDestroySwapchainKHR(device->device, object->swapchain, NULL);
-            heap_free(object);
-            return VK_ERROR_OUT_OF_HOST_MEMORY;
-        }
-        swapchains[i] = object;
-        device->swapchains = swapchains;
-        device->num_swapchains += 1;
-    }
-    LeaveCriticalSection(&device->swapchain_lock);
 
     *pSwapchain = (uint64_t)(UINT_PTR)object;
 
+    return result;
+
+fail:
+    device->funcs.p_vkDestroySwapchainKHR(device->device, object->swapchain, NULL);
+    WINE_VK_REMOVE_HANDLE_MAPPING(device->phys_dev->instance, object);
+    heap_free(object);
     return result;
 }
 
@@ -2735,15 +2701,6 @@ void WINAPI wine_vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain
 
     if(!object)
         return;
-
-    EnterCriticalSection(&device->swapchain_lock);
-    for(i = 0; i < device->num_swapchains; ++i){
-        if(device->swapchains[i] == object){
-            device->swapchains[i] = NULL;
-            break;
-        }
-    }
-    LeaveCriticalSection(&device->swapchain_lock);
 
     if(object->fs_hack_enabled){
         for(i = 0; i < object->n_images; ++i)
@@ -2766,6 +2723,7 @@ void WINAPI wine_vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain
 
     device->funcs.p_vkDestroySwapchainKHR(device->device, object->swapchain, NULL);
 
+    WINE_VK_REMOVE_HANDLE_MAPPING(device->phys_dev->instance, object);
     heap_free(object);
 }
 
