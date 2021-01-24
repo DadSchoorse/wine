@@ -2563,6 +2563,10 @@ class VkGenerator(object):
             # stuff in there. For simplicity substitute with "void *".
             pfn = pfn.replace("PFN_vkVoidFunction", "void *")
             f.write("    {0};\n".format(pfn))
+
+        f.write("\n")
+        f.write("    /* winevulkan specific functions */\n")
+        f.write("    VkSurfaceKHR (*p_wine_get_native_surface)(VkSurfaceKHR);\n")
         f.write("};\n\n")
 
         f.write("extern const struct vulkan_funcs * CDECL __wine_get_vulkan_driver(HDC hdc, UINT version);\n\n")

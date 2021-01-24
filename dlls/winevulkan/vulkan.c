@@ -1805,7 +1805,7 @@ VkResult WINAPI wine_vkCreateWin32SurfaceKHR(VkInstance instance,
         return res;
     }
 
-    object->surface = *((VkSurfaceKHR *)(uintptr_t) object->driver_surface);
+    object->surface = vk_funcs->p_wine_get_native_surface(object->driver_surface);
 
     WINE_VK_ADD_NON_DISPATCHABLE_MAPPING(instance, object, object->surface);
 
