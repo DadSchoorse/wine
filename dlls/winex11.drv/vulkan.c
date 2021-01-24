@@ -59,9 +59,9 @@ static XContext vulkan_hwnd_context;
 
 struct wine_vk_surface
 {
+    VkSurfaceKHR surface; /* native surface, has to be first! */
     LONG ref;
     Window window;
-    VkSurfaceKHR surface; /* native surface */
 };
 
 typedef struct VkXlibSurfaceCreateInfoKHR

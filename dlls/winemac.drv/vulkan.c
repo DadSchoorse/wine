@@ -54,9 +54,9 @@ typedef VkFlags VkMetalSurfaceCreateFlagsEXT;
 
 struct wine_vk_surface
 {
+    VkSurfaceKHR surface; /* native surface, has to be first! */
     macdrv_metal_device device;
     macdrv_metal_view view;
-    VkSurfaceKHR surface; /* native surface */
 };
 
 typedef struct VkMacOSSurfaceCreateInfoMVK
