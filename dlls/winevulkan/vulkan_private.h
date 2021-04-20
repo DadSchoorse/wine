@@ -114,6 +114,10 @@ struct VkPhysicalDevice_T
     VkExtensionProperties *extensions;
     uint32_t extension_count;
 
+    VkTimeDomainEXT time_domains[2];
+    uint32_t time_domain_count;
+    VkTimeDomainEXT performance_counter_domain;
+
     struct wine_vk_mapping mapping;
 };
 

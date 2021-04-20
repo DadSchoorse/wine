@@ -217,12 +217,92 @@ static void wine_vk_physical_device_free(struct VkPhysicalDevice_T *phys_dev)
     free(phys_dev);
 }
 
+static inline VkTimeDomainEXT get_performance_counter_time_domain(void)
+{
+#if !defined(__APPLE__) && defined(HAVE_CLOCK_GETTIME)
+# ifdef CLOCK_MONOTONIC_RAW
+    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
+# else
+    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
+# endif
+#else
+    FIXME("No mapping for VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT on this platform.\n");
+    return VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+#endif
+}
+
+static void init_time_domains(struct VkPhysicalDevice_T *phys_dev)
+{
+    BOOL supports_device = FALSE, supports_monotonic = FALSE, supports_monotonic_raw = FALSE;
+    const VkTimeDomainEXT performance_counter_domain = get_performance_counter_time_domain();
+    VkTimeDomainEXT *host_time_domains;
+    uint32_t host_time_domain_count;
+    unsigned int i;
+    VkResult res;
+
+    /* Find out the time domains supported on the host */
+    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, NULL);
+    if (res != VK_SUCCESS)
+        return;
+
+    if (!(host_time_domains = malloc(sizeof(VkTimeDomainEXT) * host_time_domain_count)))
+        return;
+
+    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, host_time_domains);
+    if (res != VK_SUCCESS)
+    {
+        free(host_time_domains);
+        return;
+    }
+
+    for (i = 0; i < host_time_domain_count; i++)
+    {
+        if (host_time_domains[i] == VK_TIME_DOMAIN_DEVICE_EXT)
+            supports_device = TRUE;
+        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
+            supports_monotonic = TRUE;
+        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
+            supports_monotonic_raw = TRUE;
+        else
+            FIXME("Unknown time domain %d\n", host_time_domains[i]);
+    }
+
+    free(host_time_domains);
+
+    /* Map our monotonic times -> QPC */
+    if (supports_monotonic_raw && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
+    {
+        phys_dev->time_domains[phys_dev->time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+        phys_dev->performance_counter_domain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
+    }
+    else if (supports_monotonic && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
+    {
+        phys_dev->time_domains[phys_dev->time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+        phys_dev->performance_counter_domain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
+    }
+    else if (supports_monotonic && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
+    {
+        WARN("Falling back to MONOTONIC domain for PERFORMANCE_COUNTER because RAW is not supported\n");
+        phys_dev->time_domains[phys_dev->time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+        phys_dev->performance_counter_domain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
+    }
+    else
+    {
+        FIXME("VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT not supported on this platform.\n");
+    }
+
+    /* Forward the device domain time */
+    if (supports_device)
+        phys_dev->time_domains[phys_dev->time_domain_count++] = VK_TIME_DOMAIN_DEVICE_EXT;
+}
+
 static struct VkPhysicalDevice_T *wine_vk_physical_device_alloc(struct VkInstance_T *instance,
         VkPhysicalDevice phys_dev)
 {
     struct VkPhysicalDevice_T *object;
     uint32_t num_host_properties, num_properties = 0;
     VkExtensionProperties *host_properties = NULL;
+    BOOL timestamps_supported = FALSE;
     VkResult res;
     unsigned int i, j;
 
@@ -289,8 +369,13 @@ static struct VkPhysicalDevice_T *wine_vk_physical_device_alloc(struct VkInstanc
             object->extensions[j] = host_properties[i];
             j++;
         }
+        if (!strcmp(host_properties[i].extensionName, "VK_EXT_calibrated_timestamps"))
+            timestamps_supported = TRUE;
     }
     object->extension_count = num_properties;
+
+    if (timestamps_supported)
+        init_time_domains(object);
 
     free(host_properties);
     return object;
@@ -1357,25 +1442,11 @@ VkResult WINAPI unix_vkGetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevi
 #define NANOSECONDS_IN_A_SECOND 1000000000
 #define TICKSPERSEC             10000000
 
-static inline VkTimeDomainEXT get_performance_counter_time_domain(void)
-{
-#if !defined(__APPLE__) && defined(HAVE_CLOCK_GETTIME)
-# ifdef CLOCK_MONOTONIC_RAW
-    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT;
-# else
-    return VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT;
-# endif
-#else
-    FIXME("No mapping for VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT on this platform.\n");
-    return VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
-#endif
-}
-
-static VkTimeDomainEXT map_to_host_time_domain(VkTimeDomainEXT domain)
+static VkTimeDomainEXT map_to_host_time_domain(VkPhysicalDevice phys_dev, VkTimeDomainEXT domain)
 {
     /* Matches ntdll/unix/sync.c's performance counter implementation. */
     if (domain == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT)
-        return get_performance_counter_time_domain();
+        return phys_dev->performance_counter_domain;
 
     return domain;
 }
@@ -1415,7 +1486,7 @@ VkResult WINAPI unix_vkGetCalibratedTimestampsEXT(VkDevice device,
     {
         host_timestamp_infos[i].sType = timestamp_infos[i].sType;
         host_timestamp_infos[i].pNext = timestamp_infos[i].pNext;
-        host_timestamp_infos[i].timeDomain = map_to_host_time_domain(timestamp_infos[i].timeDomain);
+        host_timestamp_infos[i].timeDomain = map_to_host_time_domain(device->phys_dev, timestamp_infos[i].timeDomain);
     }
 
     res = device->funcs.p_vkGetCalibratedTimestampsEXT(device->device, timestamp_count, host_timestamp_infos, timestamps, max_deviation);
@@ -1433,72 +1504,23 @@ VkResult WINAPI unix_vkGetCalibratedTimestampsEXT(VkDevice device,
 VkResult WINAPI unix_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(VkPhysicalDevice phys_dev,
     uint32_t *time_domain_count, VkTimeDomainEXT *time_domains)
 {
-    BOOL supports_device = FALSE, supports_monotonic = FALSE, supports_monotonic_raw = FALSE;
-    const VkTimeDomainEXT performance_counter_domain = get_performance_counter_time_domain();
-    VkTimeDomainEXT *host_time_domains;
-    uint32_t host_time_domain_count;
-    VkTimeDomainEXT out_time_domains[2];
-    uint32_t out_time_domain_count;
-    unsigned int i;
     VkResult res;
+    uint32_t i;
 
     TRACE("%p, %p, %p\n", phys_dev, time_domain_count, time_domains);
-
-    /* Find out the time domains supported on the host */
-    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, NULL);
-    if (res != VK_SUCCESS)
-        return res;
-
-    if (!(host_time_domains = malloc(sizeof(VkTimeDomainEXT) * host_time_domain_count)))
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
-
-    res = phys_dev->instance->funcs.p_vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(phys_dev->phys_dev, &host_time_domain_count, host_time_domains);
-    if (res != VK_SUCCESS)
-    {
-        free(host_time_domains);
-        return res;
-    }
-
-    for (i = 0; i < host_time_domain_count; i++)
-    {
-        if (host_time_domains[i] == VK_TIME_DOMAIN_DEVICE_EXT)
-            supports_device = TRUE;
-        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
-            supports_monotonic = TRUE;
-        else if (host_time_domains[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
-            supports_monotonic_raw = TRUE;
-        else
-            FIXME("Unknown time domain %d\n", host_time_domains[i]);
-    }
-
-    free(host_time_domains);
-
-    out_time_domain_count = 0;
-
-    /* Map our monotonic times -> QPC */
-    if (supports_monotonic_raw && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT)
-        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
-    else if (supports_monotonic && performance_counter_domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT)
-        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
-    else
-        FIXME("VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT not supported on this platform.\n");
-
-    /* Forward the device domain time */
-    if (supports_device)
-        out_time_domains[out_time_domain_count++] = VK_TIME_DOMAIN_DEVICE_EXT;
 
     /* Send the count/domains back to the app */
     if (!time_domains)
     {
-        *time_domain_count = out_time_domain_count;
+        *time_domain_count = phys_dev->time_domain_count;
         return VK_SUCCESS;
     }
 
-    for (i = 0; i < min(*time_domain_count, out_time_domain_count); i++)
-        time_domains[i] = out_time_domains[i];
+    for (i = 0; i < min(*time_domain_count, phys_dev->time_domain_count); i++)
+        time_domains[i] = phys_dev->time_domains[i];
 
-    res = *time_domain_count < out_time_domain_count ? VK_INCOMPLETE : VK_SUCCESS;
-    *time_domain_count = out_time_domain_count;
+    res = *time_domain_count < phys_dev->time_domain_count ? VK_INCOMPLETE : VK_SUCCESS;
+    *time_domain_count = phys_dev->time_domain_count;
     return res;
 }
 
