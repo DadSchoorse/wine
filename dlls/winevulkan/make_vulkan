@@ -187,6 +187,7 @@ FUNCTION_OVERRIDES = {
     "vkGetDeviceQueue" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkGetDeviceQueue2" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkQueueSubmit" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkUpdateDescriptorSets" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.PRIVATE},
 
     # VK_KHR_surface
     "vkDestroySurfaceKHR" : {"dispatch" : True, "driver" : True, "thunk" : ThunkType.NONE},

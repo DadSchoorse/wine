@@ -1860,3 +1860,28 @@ VkResult WINAPI wine_vkDebugMarkerSetObjectNameEXT(VkDevice device, const VkDebu
 
     return thunk_vkDebugMarkerSetObjectNameEXT(device, &wine_name_info);
 }
+
+void WINAPI wine_vkUpdateDescriptorSets(VkDevice device, uint32_t write_count, const VkWriteDescriptorSet *writes,
+    uint32_t copy_count, const VkCopyDescriptorSet *copies)
+{
+    TRACE("%p, %u, %p, %u, %p\n", device, write_count, writes, copy_count, copies);
+
+#if defined(USE_STRUCT_CONVERSION)
+    /* This is a fast path for 1 descriptor updates/copies.
+     * These structs have the same layout, but in an array there's 4 bytes of extra
+     * padding on windows. So if we only update one descriptor, we don't have to care
+     * about that and can skip 2 mallocs in struct conversion code.
+     */
+    if (copy_count <= 1 && (write_count == 0 || (write_count == 1 && writes->descriptorCount == 1)))
+    {
+        device->funcs.p_vkUpdateDescriptorSets(device, write_count, (const VkWriteDescriptorSet_host *) writes,
+            copy_count, (const VkCopyDescriptorSet_host *) copies);
+    }
+    else
+    {
+        thunk_vkUpdateDescriptorSets(device, write_count, writes, copy_count, copies);
+    }
+#else
+    device->funcs.p_vkUpdateDescriptorSets(device, write_count, writes, copy_count, copies);
+#endif
+}
