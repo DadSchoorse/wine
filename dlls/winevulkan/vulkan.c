@@ -1540,19 +1540,6 @@ void WINAPI wine_vkGetPrivateDataEXT(VkDevice device, VkObjectType object_type, 
     device->funcs.p_vkGetPrivateDataEXT(device->device, object_type, object_handle, private_data_slot, data);
 }
 
-VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *create_info,
-        const VkAllocationCallbacks *allocator, VkSwapchainKHR *swapchain)
-{
-    VkSwapchainCreateInfoKHR native_info;
-
-    TRACE("%p, %p, %p, %p\n", device, create_info, allocator, swapchain);
-
-    native_info = *create_info;
-    native_info.surface = wine_surface_from_handle(create_info->surface)->driver_surface;
-
-    return thunk_vkCreateSwapchainKHR(device, &native_info, allocator, swapchain);
-}
-
 VkResult WINAPI wine_vkCreateWin32SurfaceKHR(VkInstance instance,
         const VkWin32SurfaceCreateInfoKHR *createInfo, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface)
 {
@@ -1601,19 +1588,6 @@ void WINAPI wine_vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, 
     free(object);
 }
 
-VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice phys_dev,
-        const VkPhysicalDeviceSurfaceInfo2KHR *surface_info, uint32_t *formats_count, VkSurfaceFormat2KHR *formats)
-{
-    VkPhysicalDeviceSurfaceInfo2KHR native_info;
-
-    TRACE("%p, %p, %p, %p\n", phys_dev, surface_info, formats_count, formats);
-
-    native_info = *surface_info;
-    native_info.surface = wine_surface_from_handle(surface_info->surface)->driver_surface;
-
-    return thunk_vkGetPhysicalDeviceSurfaceFormats2KHR(phys_dev, &native_info, formats_count, formats);
-}
-
 static inline void adjust_max_image_count(VkPhysicalDevice phys_dev, VkSurfaceCapabilitiesKHR* capabilities)
 {
     /* Many Windows games, for example Strange Brigade, No Man's Sky, Path of Exile
@@ -1647,15 +1621,11 @@ VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice 
 VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice phys_dev,
         const VkPhysicalDeviceSurfaceInfo2KHR *surface_info, VkSurfaceCapabilities2KHR *capabilities)
 {
-    VkPhysicalDeviceSurfaceInfo2KHR native_info;
     VkResult res;
 
     TRACE("%p, %p, %p\n", phys_dev, surface_info, capabilities);
 
-    native_info = *surface_info;
-    native_info.surface = wine_surface_from_handle(surface_info->surface)->driver_surface;
-
-    res = thunk_vkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, &native_info, capabilities);
+    res = thunk_vkGetPhysicalDeviceSurfaceCapabilities2KHR(phys_dev, surface_info, capabilities);
 
     if (res == VK_SUCCESS)
         adjust_max_image_count(phys_dev, &capabilities->surfaceCapabilities);
