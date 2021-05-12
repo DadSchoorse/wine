@@ -1312,13 +1312,16 @@ static inline void free_VkRayTracingPipelineCreateInfoNV_array(VkRayTracingPipel
 }
 
 static inline void convert_VkSwapchainCreateInfoKHR_win_to_host(const VkSwapchainCreateInfoKHR *in, VkSwapchainCreateInfoKHR_host *out)
+#else
+static inline void convert_VkSwapchainCreateInfoKHR_win_to_host(const VkSwapchainCreateInfoKHR *in, VkSwapchainCreateInfoKHR *out)
+#endif /* USE_STRUCT_CONVERSION */
 {
     if (!in) return;
 
     out->sType = in->sType;
     out->pNext = in->pNext;
     out->flags = in->flags;
-    out->surface = in->surface;
+    out->surface = wine_surface_from_handle(in->surface)->driver_surface;
     out->minImageCount = in->minImageCount;
     out->imageFormat = in->imageFormat;
     out->imageColorSpace = in->imageColorSpace;
@@ -1335,6 +1338,7 @@ static inline void convert_VkSwapchainCreateInfoKHR_win_to_host(const VkSwapchai
     out->oldSwapchain = in->oldSwapchain;
 }
 
+#if defined(USE_STRUCT_CONVERSION)
 static inline void convert_VkDebugMarkerObjectNameInfoEXT_win_to_host(const VkDebugMarkerObjectNameInfoEXT *in, VkDebugMarkerObjectNameInfoEXT_host *out)
 {
     if (!in) return;
@@ -1786,14 +1790,18 @@ static inline void convert_VkPhysicalDeviceProperties2_host_to_win(const VkPhysi
 }
 
 static inline void convert_VkPhysicalDeviceSurfaceInfo2KHR_win_to_host(const VkPhysicalDeviceSurfaceInfo2KHR *in, VkPhysicalDeviceSurfaceInfo2KHR_host *out)
+#else
+static inline void convert_VkPhysicalDeviceSurfaceInfo2KHR_win_to_host(const VkPhysicalDeviceSurfaceInfo2KHR *in, VkPhysicalDeviceSurfaceInfo2KHR *out)
+#endif /* USE_STRUCT_CONVERSION */
 {
     if (!in) return;
 
     out->sType = in->sType;
     out->pNext = in->pNext;
-    out->surface = in->surface;
+    out->surface = wine_surface_from_handle(in->surface)->driver_surface;
 }
 
+#if defined(USE_STRUCT_CONVERSION)
 static inline void convert_VkPipelineExecutableInfoKHR_win_to_host(const VkPipelineExecutableInfoKHR *in, VkPipelineExecutableInfoKHR_host *out)
 {
     if (!in) return;
@@ -2031,9 +2039,43 @@ static inline void free_VkSemaphoreSubmitInfoKHR_array(VkSemaphoreSubmitInfoKHR_
     free(in);
 }
 
+#endif /* USE_STRUCT_CONVERSION */
+
+static inline VkCommandBufferSubmitInfoKHR *convert_VkCommandBufferSubmitInfoKHR_array_win_to_host(const VkCommandBufferSubmitInfoKHR *in, uint32_t count)
+{
+    VkCommandBufferSubmitInfoKHR *out;
+    unsigned int i;
+
+    if (!in) return NULL;
+
+    out = malloc(count * sizeof(*out));
+    for (i = 0; i < count; i++)
+    {
+        out[i].sType = in[i].sType;
+        out[i].pNext = in[i].pNext;
+        out[i].commandBuffer = in[i].commandBuffer->command_buffer;
+        out[i].deviceMask = in[i].deviceMask;
+    }
+
+    return out;
+}
+
+static inline void free_VkCommandBufferSubmitInfoKHR_array(VkCommandBufferSubmitInfoKHR *in, uint32_t count)
+{
+    if (!in) return;
+
+    free(in);
+}
+
+#if defined(USE_STRUCT_CONVERSION)
 static inline VkSubmitInfo2KHR_host *convert_VkSubmitInfo2KHR_array_win_to_host(const VkSubmitInfo2KHR *in, uint32_t count)
 {
     VkSubmitInfo2KHR_host *out;
+#else
+static inline VkSubmitInfo2KHR *convert_VkSubmitInfo2KHR_array_win_to_host(const VkSubmitInfo2KHR *in, uint32_t count)
+{
+    VkSubmitInfo2KHR *out;
+#endif /* USE_STRUCT_CONVERSION */
     unsigned int i;
 
     if (!in) return NULL;
@@ -2045,17 +2087,29 @@ static inline VkSubmitInfo2KHR_host *convert_VkSubmitInfo2KHR_array_win_to_host(
         out[i].pNext = in[i].pNext;
         out[i].flags = in[i].flags;
         out[i].waitSemaphoreInfoCount = in[i].waitSemaphoreInfoCount;
+#if defined(USE_STRUCT_CONVERSION)
         out[i].pWaitSemaphoreInfos = convert_VkSemaphoreSubmitInfoKHR_array_win_to_host(in[i].pWaitSemaphoreInfos, in[i].waitSemaphoreInfoCount);
+#else
+        out[i].pWaitSemaphoreInfos = in[i].pWaitSemaphoreInfos;
+#endif /* USE_STRUCT_CONVERSION */
         out[i].commandBufferInfoCount = in[i].commandBufferInfoCount;
-        out[i].pCommandBufferInfos = in[i].pCommandBufferInfos;
+        out[i].pCommandBufferInfos = convert_VkCommandBufferSubmitInfoKHR_array_win_to_host(in[i].pCommandBufferInfos, in[i].commandBufferInfoCount);
         out[i].signalSemaphoreInfoCount = in[i].signalSemaphoreInfoCount;
+#if defined(USE_STRUCT_CONVERSION)
         out[i].pSignalSemaphoreInfos = convert_VkSemaphoreSubmitInfoKHR_array_win_to_host(in[i].pSignalSemaphoreInfos, in[i].signalSemaphoreInfoCount);
+#else
+        out[i].pSignalSemaphoreInfos = in[i].pSignalSemaphoreInfos;
+#endif /* USE_STRUCT_CONVERSION */
     }
 
     return out;
 }
 
+#if defined(USE_STRUCT_CONVERSION)
 static inline void free_VkSubmitInfo2KHR_array(VkSubmitInfo2KHR_host *in, uint32_t count)
+#else
+static inline void free_VkSubmitInfo2KHR_array(VkSubmitInfo2KHR *in, uint32_t count)
+#endif /* USE_STRUCT_CONVERSION */
 {
     unsigned int i;
 
@@ -2063,12 +2117,18 @@ static inline void free_VkSubmitInfo2KHR_array(VkSubmitInfo2KHR_host *in, uint32
 
     for (i = 0; i < count; i++)
     {
+#if defined(USE_STRUCT_CONVERSION)
         free_VkSemaphoreSubmitInfoKHR_array((VkSemaphoreSubmitInfoKHR_host *)in[i].pWaitSemaphoreInfos, in[i].waitSemaphoreInfoCount);
+#endif /* USE_STRUCT_CONVERSION */
+        free_VkCommandBufferSubmitInfoKHR_array((VkCommandBufferSubmitInfoKHR *)in[i].pCommandBufferInfos, in[i].commandBufferInfoCount);
+#if defined(USE_STRUCT_CONVERSION)
         free_VkSemaphoreSubmitInfoKHR_array((VkSemaphoreSubmitInfoKHR_host *)in[i].pSignalSemaphoreInfos, in[i].signalSemaphoreInfoCount);
+#endif /* USE_STRUCT_CONVERSION */
     }
     free(in);
 }
 
+#if defined(USE_STRUCT_CONVERSION)
 static inline void convert_VkDebugUtilsObjectNameInfoEXT_win_to_host(const VkDebugUtilsObjectNameInfoEXT *in, VkDebugUtilsObjectNameInfoEXT_host *out)
 {
     if (!in) return;
@@ -2184,6 +2244,32 @@ static inline void free_VkCopyDescriptorSet_array(VkCopyDescriptorSet_host *in, 
     free(in);
 }
 
+#endif /* USE_STRUCT_CONVERSION */
+
+static inline VkPhysicalDevice *convert_VkPhysicalDevice_array_win_to_host(const VkPhysicalDevice *in, uint32_t count)
+{
+    VkPhysicalDevice *out;
+    unsigned int i;
+
+    if (!in) return NULL;
+
+    out = malloc(count * sizeof(*out));
+    for (i = 0; i < count; i++)
+    {
+        out[i] = in[i]->phys_dev;
+    }
+
+    return out;
+}
+
+static inline void free_VkPhysicalDevice_array(VkPhysicalDevice *in, uint32_t count)
+{
+    if (!in) return;
+
+    free(in);
+}
+
+#if defined(USE_STRUCT_CONVERSION)
 #endif /* USE_STRUCT_CONVERSION */
 
 VkResult convert_VkDeviceCreateInfo_struct_chain(const void *pNext, VkDeviceCreateInfo *out_struct)
@@ -2310,7 +2396,7 @@ VkResult convert_VkDeviceCreateInfo_struct_chain(const void *pNext, VkDeviceCrea
             out->sType = in->sType;
             out->pNext = NULL;
             out->physicalDeviceCount = in->physicalDeviceCount;
-            out->pPhysicalDevices = in->pPhysicalDevices;
+            out->pPhysicalDevices = convert_VkPhysicalDevice_array_win_to_host(in->pPhysicalDevices, in->physicalDeviceCount);
 
             out_header->pNext = (VkBaseOutStructure *)out;
             out_header = out_header->pNext;
@@ -3791,6 +3877,18 @@ void free_VkDeviceCreateInfo_struct_chain(VkDeviceCreateInfo *s)
     while (header)
     {
         void *prev = header;
+
+        switch (header->sType)
+        {
+            case VK_STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO:
+            {
+                VkDeviceGroupDeviceCreateInfo *structure = (VkDeviceGroupDeviceCreateInfo *) header;
+                free_VkPhysicalDevice_array((VkPhysicalDevice *)structure->pPhysicalDevices, structure->physicalDeviceCount);
+                break;
+            }
+            default:
+                break;
+        }
         header = header->pNext;
         free(prev);
     }
@@ -3906,6 +4004,12 @@ void free_VkInstanceCreateInfo_struct_chain(VkInstanceCreateInfo *s)
     while (header)
     {
         void *prev = header;
+
+        switch (header->sType)
+        {
+            default:
+                break;
+        }
         header = header->pNext;
         free(prev);
     }
@@ -5718,17 +5822,25 @@ VkResult WINAPI wine_vkCreateShaderModule(VkDevice device, const VkShaderModuleC
     return device->funcs.p_vkCreateShaderModule(device->device, pCreateInfo, NULL, pShaderModule);
 }
 
-VkResult thunk_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain)
+VkResult WINAPI wine_vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain)
 {
 #if defined(USE_STRUCT_CONVERSION)
     VkResult result;
     VkSwapchainCreateInfoKHR_host pCreateInfo_host;
+    TRACE("%p, %p, %p, %p\n", device, pCreateInfo, pAllocator, pSwapchain);
+
     convert_VkSwapchainCreateInfoKHR_win_to_host(pCreateInfo, &pCreateInfo_host);
     result = device->funcs.p_vkCreateSwapchainKHR(device->device, &pCreateInfo_host, NULL, pSwapchain);
 
     return result;
 #else
-    return device->funcs.p_vkCreateSwapchainKHR(device->device, pCreateInfo, NULL, pSwapchain);
+    VkResult result;
+    VkSwapchainCreateInfoKHR pCreateInfo_host;
+    TRACE("%p, %p, %p, %p\n", device, pCreateInfo, pAllocator, pSwapchain);
+    convert_VkSwapchainCreateInfoKHR_win_to_host(pCreateInfo, &pCreateInfo_host);
+    result = device->funcs.p_vkCreateSwapchainKHR(device->device, pCreateInfo, NULL, pSwapchain);
+
+    return result;
 #endif
 }
 
@@ -6726,7 +6838,12 @@ VkResult thunk_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice physi
 
     return result;
 #else
-    return physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR(physicalDevice->phys_dev, pSurfaceInfo, pSurfaceCapabilities);
+    VkResult result;
+    VkPhysicalDeviceSurfaceInfo2KHR pSurfaceInfo_host;
+    convert_VkPhysicalDeviceSurfaceInfo2KHR_win_to_host(pSurfaceInfo, &pSurfaceInfo_host);
+    result = physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilities2KHR(physicalDevice->phys_dev, pSurfaceInfo, pSurfaceCapabilities);
+
+    return result;
 #endif
 }
 
@@ -6735,17 +6852,25 @@ VkResult thunk_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physic
     return physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice->phys_dev, wine_surface_from_handle(surface)->driver_surface, pSurfaceCapabilities);
 }
 
-VkResult thunk_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo, uint32_t *pSurfaceFormatCount, VkSurfaceFormat2KHR *pSurfaceFormats)
+VkResult WINAPI wine_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo, uint32_t *pSurfaceFormatCount, VkSurfaceFormat2KHR *pSurfaceFormats)
 {
 #if defined(USE_STRUCT_CONVERSION)
     VkResult result;
     VkPhysicalDeviceSurfaceInfo2KHR_host pSurfaceInfo_host;
+    TRACE("%p, %p, %p, %p\n", physicalDevice, pSurfaceInfo, pSurfaceFormatCount, pSurfaceFormats);
+
     convert_VkPhysicalDeviceSurfaceInfo2KHR_win_to_host(pSurfaceInfo, &pSurfaceInfo_host);
     result = physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(physicalDevice->phys_dev, &pSurfaceInfo_host, pSurfaceFormatCount, pSurfaceFormats);
 
     return result;
 #else
-    return physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(physicalDevice->phys_dev, pSurfaceInfo, pSurfaceFormatCount, pSurfaceFormats);
+    VkResult result;
+    VkPhysicalDeviceSurfaceInfo2KHR pSurfaceInfo_host;
+    TRACE("%p, %p, %p, %p\n", physicalDevice, pSurfaceInfo, pSurfaceFormatCount, pSurfaceFormats);
+    convert_VkPhysicalDeviceSurfaceInfo2KHR_win_to_host(pSurfaceInfo, &pSurfaceInfo_host);
+    result = physicalDevice->instance->funcs.p_vkGetPhysicalDeviceSurfaceFormats2KHR(physicalDevice->phys_dev, pSurfaceInfo, pSurfaceFormatCount, pSurfaceFormats);
+
+    return result;
 #endif
 }
 
@@ -7017,8 +7142,14 @@ static VkResult WINAPI wine_vkQueueSubmit2KHR(VkQueue queue, uint32_t submitCoun
     free_VkSubmitInfo2KHR_array(pSubmits_host, submitCount);
     return result;
 #else
+    VkResult result;
+    VkSubmitInfo2KHR *pSubmits_host;
     TRACE("%p, %u, %p, 0x%s\n", queue, submitCount, pSubmits, wine_dbgstr_longlong(fence));
-    return queue->device->funcs.p_vkQueueSubmit2KHR(queue->queue, submitCount, pSubmits, fence);
+    pSubmits_host = convert_VkSubmitInfo2KHR_array_win_to_host(pSubmits, submitCount);
+    result = queue->device->funcs.p_vkQueueSubmit2KHR(queue->queue, submitCount, pSubmits, fence);
+
+    free_VkSubmitInfo2KHR_array(pSubmits_host, submitCount);
+    return result;
 #endif
 }
 
