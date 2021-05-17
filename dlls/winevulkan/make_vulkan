@@ -99,7 +99,6 @@ UNSUPPORTED_EXTENSIONS = [
     "VK_EXT_pipeline_creation_feedback",
     "VK_GOOGLE_display_timing",
     "VK_KHR_external_fence_win32",
-    "VK_KHR_external_memory_win32",
     "VK_KHR_external_semaphore_win32",
     # Relates to external_semaphore and needs type conversions in bitflags.
     "VK_KHR_shared_presentable_image", # Needs WSI work.
@@ -109,7 +108,6 @@ UNSUPPORTED_EXTENSIONS = [
     "VK_EXT_external_memory_dma_buf",
     "VK_EXT_image_drm_format_modifier",
     "VK_KHR_external_fence_fd",
-    "VK_KHR_external_memory_fd",
     "VK_KHR_external_semaphore_fd",
 
     # Extensions which require callback handling
@@ -121,7 +119,9 @@ UNSUPPORTED_EXTENSIONS = [
 ]
 
 # Extensions which aren't present on the win32 platform, but which winevulkan may use.
-UNEXPOSED_EXTENSIONS = []
+UNEXPOSED_EXTENSIONS = [
+    "VK_KHR_external_memory_fd",
+]
 
 # The Vulkan loader provides entry-points for core functionality and important
 # extensions. Based on vulkan-1.def this amounts to WSI extensions on 1.0.51.
@@ -179,7 +179,7 @@ FUNCTION_OVERRIDES = {
     "vkEnumerateDeviceLayerProperties": {"dispatch": True, "driver": False, "thunk": ThunkType.NONE},
     "vkEnumeratePhysicalDeviceGroups" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkEnumeratePhysicalDevices" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
-    "vkGetPhysicalDeviceExternalBufferProperties" : {"dispatch" : False, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkGetPhysicalDeviceExternalBufferProperties" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.PRIVATE},
     "vkGetPhysicalDeviceExternalFenceProperties" : {"dispatch" : False, "driver" : False, "thunk" : ThunkType.NONE},
     "vkGetPhysicalDeviceExternalSemaphoreProperties" : {"dispatch" : False, "driver" : False, "thunk" : ThunkType.NONE},
     "vkGetPhysicalDeviceImageFormatProperties2" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.PRIVATE},
@@ -188,10 +188,14 @@ FUNCTION_OVERRIDES = {
 
     # Device functions
     "vkAllocateCommandBuffers" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkAllocateMemory" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkCreateBuffer" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkCreateCommandPool" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkCreateImage" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkDestroyCommandPool" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkDestroyDevice" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkFreeCommandBuffers" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkFreeMemory" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkGetDeviceProcAddr" : {"dispatch" : False, "driver" : True, "thunk" : ThunkType.NONE, "loader_thunk" : ThunkType.NONE},
     "vkGetDeviceQueue" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
     "vkGetDeviceQueue2" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.NONE},
@@ -221,7 +225,7 @@ FUNCTION_OVERRIDES = {
     "vkGetPhysicalDeviceExternalFencePropertiesKHR" : {"dispatch" : False, "driver" : False, "thunk" : ThunkType.NONE},
 
     # VK_KHR_external_memory_capabilities
-    "vkGetPhysicalDeviceExternalBufferPropertiesKHR" : {"dispatch" : False, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkGetPhysicalDeviceExternalBufferPropertiesKHR" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.PRIVATE},
     "vkGetPhysicalDeviceImageFormatProperties2KHR" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.PRIVATE},
 
     # VK_KHR_external_semaphore_capabilities
@@ -257,12 +261,22 @@ FUNCTION_OVERRIDES = {
     # VK_EXT_debug_marker
     "vkDebugMarkerSetObjectNameEXT" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.PRIVATE},
     "vkDebugMarkerSetObjectTagEXT" : {"dispatch": True, "driver" : False, "thunk" : ThunkType.PRIVATE},
+
+    # VK_KHR_external_memory_win32
+    "vkGetMemoryWin32HandleKHR" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
+    "vkGetMemoryWin32HandlePropertiesKHR" : {"dispatch" : True, "driver" : False, "thunk" : ThunkType.NONE},
 }
 
 STRUCT_CHAIN_CONVERSIONS = {
     # Ignore to not confuse host loader.
     "VkDeviceCreateInfo": ["VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO"],
     "VkInstanceCreateInfo": ["VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO"],
+
+    # Structs which require pNext chain modification
+    "VkBufferCreateInfo": [],
+    "VkImageCreateInfo": [],
+    "VkMemoryAllocateInfo": ["VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHR", "VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR"],
+    "VkPhysicalDeviceImageFormatInfo2": [],
 }
 
 
@@ -1052,6 +1066,8 @@ class VkHandle(object):
             return "wine_debug_report_callback_from_handle({0})->debug_callback".format(name)
         if self.name == "VkSurfaceKHR":
             return "wine_surface_from_handle({0})->surface".format(name)
+        if self.name == "VkDeviceMemory":
+            return "wine_dev_mem_from_handle({0})->dev_mem".format(name)
 
         native_handle_name = None
 
