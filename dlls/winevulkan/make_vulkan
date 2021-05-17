@@ -120,6 +120,9 @@ UNSUPPORTED_EXTENSIONS = [
     "VK_NV_external_memory_win32",
 ]
 
+# Extensions which aren't present on the win32 platform, but which winevulkan may use.
+UNEXPOSED_EXTENSIONS = []
+
 # The Vulkan loader provides entry-points for core functionality and important
 # extensions. Based on vulkan-1.def this amounts to WSI extensions on 1.0.51.
 CORE_EXTENSIONS = [
@@ -521,7 +524,7 @@ class VkEnumValue(object):
 
 
 class VkFunction(object):
-    def __init__(self, _type=None, name=None, params=[], extensions=[], alias=None):
+    def __init__(self, _type=None, name=None, params=[], alias=None):
         self.extensions = []
         self.name = name
         self.type = _type
@@ -664,6 +667,9 @@ class VkFunction(object):
 
     def needs_private_thunk(self):
         return self.thunk_type == ThunkType.PRIVATE
+
+    def needs_exposed(self):
+        return not any(x for x in self.extensions if x in UNEXPOSED_EXTENSIONS)
 
     def pfn(self, prefix="p", call_conv=None, conv=False):
         """ Create function pointer. """
@@ -2656,6 +2662,9 @@ class VkGenerator(object):
             if not vk_func.is_required():
                 continue
 
+            if not vk_func.needs_exposed():
+                continue
+
             if vk_func.is_global_func():
                 continue
 
@@ -2676,6 +2685,8 @@ class VkGenerator(object):
         for ext in self.registry.extensions:
             if ext["type"] != "device":
                 continue
+            if ext["name"] in UNEXPOSED_EXTENSIONS:
+                continue
 
             f.write("    \"{0}\",\n".format(ext["name"]))
         f.write("};\n\n")
@@ -2684,6 +2695,8 @@ class VkGenerator(object):
         f.write("static const char * const vk_instance_extensions[] =\n{\n")
         for ext in self.registry.extensions:
             if ext["type"] != "instance":
+                continue
+            if ext["name"] in UNEXPOSED_EXTENSIONS:
                 continue
 
             f.write("    \"{0}\",\n".format(ext["name"]))
@@ -2746,6 +2759,8 @@ class VkGenerator(object):
         for vk_func in self.registry.funcs.values():
             if not vk_func.is_required():
                 continue
+            if not vk_func.needs_exposed():
+                continue
             if vk_func.loader_thunk_type == ThunkType.NONE:
                 continue
 
@@ -2766,6 +2781,8 @@ class VkGenerator(object):
             if not vk_func.is_required():
                 continue
             if vk_func.needs_thunk() and not vk_func.needs_private_thunk():
+                continue
+            if not vk_func.needs_exposed():
                 continue
 
             if vk_func.is_core_func():
@@ -2874,6 +2891,8 @@ class VkGenerator(object):
         for vk_func in self.registry.funcs.values():
             if not vk_func.is_required():
                 continue
+            if not vk_func.needs_exposed():
+                continue
             if vk_func.loader_thunk_type != ThunkType.PUBLIC:
                 continue
 
@@ -2883,6 +2902,8 @@ class VkGenerator(object):
         for vk_func in self.registry.device_funcs:
             if not vk_func.is_required():
                 continue
+            if not vk_func.needs_exposed():
+                continue
 
             f.write("    {{\"{0}\", &{0}}},\n".format(vk_func.name))
         f.write("};\n\n")
@@ -2891,6 +2912,8 @@ class VkGenerator(object):
         for vk_func in self.registry.phys_dev_funcs:
             if not vk_func.is_required():
                 continue
+            if not vk_func.needs_exposed():
+                continue
 
             f.write("    {{\"{0}\", &{0}}},\n".format(vk_func.name))
         f.write("};\n\n")
@@ -2898,6 +2921,8 @@ class VkGenerator(object):
         f.write("static const struct vulkan_func vk_instance_dispatch_table[] =\n{\n")
         for vk_func in self.registry.instance_funcs:
             if not vk_func.is_required():
+                continue
+            if not vk_func.needs_exposed():
                 continue
 
             f.write("    {{\"{0}\", &{0}}},\n".format(vk_func.name))
@@ -2955,6 +2980,8 @@ class VkGenerator(object):
         f.write("{\n")
         for vk_func in self.registry.funcs.values():
             if not vk_func.is_required():
+                continue
+            if not vk_func.needs_exposed():
                 continue
             if vk_func.loader_thunk_type == ThunkType.NONE:
                 continue
