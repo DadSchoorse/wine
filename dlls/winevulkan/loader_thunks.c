@@ -1483,6 +1483,16 @@ VkResult WINAPI vkGetMemoryHostPointerPropertiesEXT(VkDevice device, VkExternalM
     return unix_funcs->p_vkGetMemoryHostPointerPropertiesEXT(device, handleType, pHostPointer, pMemoryHostPointerProperties);
 }
 
+VkResult WINAPI vkGetMemoryWin32HandleKHR(VkDevice device, const VkMemoryGetWin32HandleInfoKHR *pGetWin32HandleInfo, HANDLE *pHandle)
+{
+    return unix_funcs->p_vkGetMemoryWin32HandleKHR(device, pGetWin32HandleInfo, pHandle);
+}
+
+VkResult WINAPI vkGetMemoryWin32HandlePropertiesKHR(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, HANDLE handle, VkMemoryWin32HandlePropertiesKHR *pMemoryWin32HandleProperties)
+{
+    return unix_funcs->p_vkGetMemoryWin32HandlePropertiesKHR(device, handleType, handle, pMemoryWin32HandleProperties);
+}
+
 VkResult WINAPI vkGetPerformanceParameterINTEL(VkDevice device, VkPerformanceParameterTypeINTEL parameter, VkPerformanceValueINTEL *pValue)
 {
     return unix_funcs->p_vkGetPerformanceParameterINTEL(device, parameter, pValue);
@@ -2265,6 +2275,8 @@ static const struct vulkan_func vk_device_dispatch_table[] =
     {"vkGetImageViewAddressNVX", &vkGetImageViewAddressNVX},
     {"vkGetImageViewHandleNVX", &vkGetImageViewHandleNVX},
     {"vkGetMemoryHostPointerPropertiesEXT", &vkGetMemoryHostPointerPropertiesEXT},
+    {"vkGetMemoryWin32HandleKHR", &vkGetMemoryWin32HandleKHR},
+    {"vkGetMemoryWin32HandlePropertiesKHR", &vkGetMemoryWin32HandlePropertiesKHR},
     {"vkGetPerformanceParameterINTEL", &vkGetPerformanceParameterINTEL},
     {"vkGetPipelineCacheData", &vkGetPipelineCacheData},
     {"vkGetPipelineExecutableInternalRepresentationsKHR", &vkGetPipelineExecutableInternalRepresentationsKHR},
